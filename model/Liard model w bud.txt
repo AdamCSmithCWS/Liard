@@ -1,0 +1,91 @@
+model
+{  #### counts and overdispersion effects 
+   for( k in 1 : ncounts ) {
+      linpred[k] <- alpha + beta * (yr[k] - midyear) + habadj[k] + site[sit[k]] #station[statn[k],sit[k]] +  
+      linpredn[k] ~ dnorm(linpred[k], taunoise)
+      log(lambda[k]) <- linpredn[k]
+      count[k] ~ dpois(lambda[k])
+log_lik[k] <- logdensity.pois(count[k],lambda[k]) # log likelihood calculation used to calculate WAIC values
+
+
+########## alternative parameters currently excluded
+#######+ yeareffect[yr[k]] #+ obs[obser[k]] #+ descr[desc[k]] #
+##########
+
+     for(p in 1:npredictors){
+        habadjM[k,p] <- bhab[p,1] * hab[k,p] + bhab[p,2] * hab2[k,p]
+     }
+     habadj1[k] <- sum(habadjM[k,1:npredictors])
+	habadj[k] <- habadj1[k]+bbud[budw[k]]
+
+
+    
+}#k counts
+
+
+### fixed effect priors
+
+
+  taunoise ~ dgamma(0.001,0.001)
+  sdnoise <- 1 / pow(taunoise, 0.5)
+  beta ~ dnorm(0,0.01) # slope
+  alpha ~ dnorm(0,0.01) # intercept
+
+
+###############
+####precision prior for each predictors var-covar between the linear and quadratic terms
+###############
+
+for(p in 1:npredictors){
+bhab[p,1:2] ~ dmnorm(qzeros,tauBeta[1:2,1:2,p])
+############################################### wishart prior for tauBeta
+  tauBeta[1:2,1:2,p] ~ dwish( diagon[1:2,1:2] , 2)
+}#p
+
+for(b in 1:(nbudclass-1)){
+bbud[b] ~ dnorm(0,0.01)#prior for budworm coefficients #categorical predictor based on distance 1 = local, 2 = nearby, 3 = regional, 4 = none
+}
+bbud[nbudclass] <- 0
+
+### random effects of site = StationID
+for(j in 1:nsits){
+site[j] ~ dnorm(0,tausite)
+
+
+
+}#j
+tausite ~ dgamma(0.001,0.001)
+   sdsite <- 1 / pow(tausite, 0.5)
+
+### derived trajectory removing any effect of habitat change
+
+ for( y in 1:nyrs) {
+for(s in 1:nsitespredict){
+ns[s,y] <- exp(alpha + beta * (y - midyear) + site[s] + (0.5*(1/taunoise)))
+}#s
+
+n[y] <- mean(ns[1:nsitespredict,y])#
+}
+trend <- (pow(n[nyrs]/n[1],1/(nyrs-1))-1)*100 #endpoint trend after removing the effect of habitat
+
+
+### derived trajectory including the habitat patterns
+for(y in predyrs){
+for(s in 1:nsitespredict){
+     for(p in 1:nvegpredictors){
+        habadjMp[s,p,y] <- bhab[p,1] * habp[s,y,p] + bhab[p,2] * hab2p[s,y,p]
+     }
+     habadjp1[s,y] <- sum(habadjMp[s,1:nvegpredictors,y])
+	habadjp[s,y] <- habadjp1[s,y] + bbud[habbudp[s,y]]
+nhs[s,y] <- exp(alpha + beta * (y - midyear) + habadjp[s,y] + site[s] + (0.5*(1/taunoise)))
+
+}#s
+nh[y] <- mean(nhs[1:nsitespredict,y])
+}#y
+
+trendh <- (pow(nh[nyrs]/nh[1],1/(nyrs-1))-1)*100 #endpoint trend including the effect of habitat
+
+      #-------------------------------------------------#
+
+trenddiff <- trendh-trend
+}
